@@ -91,7 +91,7 @@ void mpu6050_task(void *p) {
         FusionEuler euler = FusionQuaternionToEuler(FusionAhrsGetQuaternion(&ahrs));
 
         // Monta string CSV: roll,pitch,yaw,click\n  
-        int click = (accelerometer.axis.y > 2.0f) ? 1 : 0;
+        int click = (accelerometer.axis.z > 0.5f) ? 1 : 0;
         int len = snprintf(outbuf, sizeof(outbuf), "%.2f,%.2f,%.2f,%d\n",
                            euler.angle.roll,
                            euler.angle.pitch,

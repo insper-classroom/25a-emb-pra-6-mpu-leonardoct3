@@ -7,47 +7,69 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import messagebox
 
-def move_mouse(roll: float, pitch: float, sensitivity: float = 1.0):
+pyautogui.PAUSE = 0
+
+def move_mouse(roll: float, pitch: float, sensitivity: float = 0.5):
     """
     Move o mouse: roll → X, pitch → Y.
     sensitivity é um multiplicador para ajustar a velocidade.
     """
-    dx = roll * sensitivity
-    dy = pitch * sensitivity
+    dx = -pitch * sensitivity
+    dy = roll * sensitivity
     pyautogui.moveRel(dx, dy)
 
 def serial_reader(ser):
-    """
-    Thread que lê linhas CSV da porta serial:
-    roll,pitch,yaw,click
-    """
+    # --- calibração inicial ---
+    calib_samples = []
+    while len(calib_samples) < 100:
+        line = ser.readline().decode('ascii', errors='ignore').strip()
+        if not line: continue
+        parts = line.split(',')
+        if len(parts) != 4: continue
+        r, p, _y, _c = map(float, parts)
+        calib_samples.append((r, p))
+    roll_offset  = sum(r for r,_ in calib_samples) / len(calib_samples)
+    pitch_offset = sum(p for _,p in calib_samples) / len(calib_samples)
+
     prev_click = 0
-    sensitivity = 1.0  # ajuste de acordo com o quanto quer movimentar
+    # faz inicialização de filtro se quiser
+    roll_f = pitch_f = 0.0
+    alpha = 0.2
+    deadzone = 0.5  # em graus, ajuste a gosto
+
     while True:
-        try:
-            line = ser.readline().decode('ascii', errors='ignore').strip()
-            if not line:
-                continue
+        line = ser.readline().decode('ascii', errors='ignore').strip()
+        if not line:
+            continue
 
-            parts = line.split(',')
-            if len(parts) != 4:
-                # linha "mimada"?
-                continue
+        parts = line.split(',')
+        if len(parts) != 4:
+            continue
 
-            roll, pitch, yaw = map(float, parts[:3])
-            click = int(parts[3])
+        roll, pitch, yaw = map(float, parts[:3])
+        click = int(parts[3])
 
-            # move o mouse
-            move_mouse(roll, pitch, sensitivity)
+        # aplica offset
+        roll  = roll  - roll_offset
+        pitch = pitch - pitch_offset
 
-            # click na transição 0→1
-            if click and not prev_click:
-                pyautogui.click()
+        # filtro passa-baixa EMA (opcional)
+        roll_f  = alpha*roll  + (1-alpha)*roll_f
+        pitch_f = alpha*pitch + (1-alpha)*pitch_f
 
-            prev_click = click
+        # dead-zone: ignora ruídos pequenos
+        if abs(roll_f)  < deadzone: roll_f  = 0.0
+        if abs(pitch_f) < deadzone: pitch_f = 0.0
 
-        except Exception as e:
-            print("Erro na leitura/parsing:", e)
+        # move mouse usando valores ajustados
+        move_mouse(roll_f, pitch_f)
+
+        # clique na transição
+        if click and not prev_click:
+            pyautogui.click()
+
+        prev_click = click
+
 
 def serial_ports():
     """Detecta portas seriais disponíveis."""
